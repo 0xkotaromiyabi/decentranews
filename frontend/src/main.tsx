@@ -8,6 +8,11 @@ import { RainbowKitProvider, RainbowKitAuthenticationProvider } from '@rainbow-m
 import App from './App';
 import { config } from './wagmi';
 import { authenticationAdapter } from './authAdapter';
+import { API_URL } from './api';
+
+// Suppress Lit dev mode warning
+// @ts-ignore
+window.litDisableBundleWarning = true;
 
 const queryClient = new QueryClient();
 
@@ -17,7 +22,7 @@ function Root() {
   React.useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('http://localhost:3000/me', { credentials: 'include' });
+        const res = await fetch(`${API_URL}/me`, { credentials: 'include' });
         if (res.ok) {
           setAuthStatus('authenticated');
         } else {

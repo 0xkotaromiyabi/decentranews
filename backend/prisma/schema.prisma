@@ -8,18 +8,26 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  address   String   @unique
-  createdAt DateTime @default(now())
+  id        String    @id @default(uuid())
+  address   String    @unique
+  role      String    @default("USER") // ADMIN, EDITOR, USER
   articles  Article[]
+  createdAt DateTime  @default(now())
 }
 
 model Article {
   id          String   @id @default(uuid())
   title       String
-  content     String
-  status      String   @default("DRAFT") // DRAFT, PUBLISHED
-  publishedAt DateTime @default(now())
+  content          String
+  status           String    @default("DRAFT") // DRAFT, PUBLISHED
+  category         String    @default("General")
+  type             String    @default("POST") // POST, PAGE
+  slug             String?   @unique
+  excerpt          String?
+  featuredImage    String?
+  seoTitle         String?
+  seoDescription   String?
+  publishedAt      DateTime  @default(now())
   authorId    String
   author      User     @relation(fields: [authorId], references: [id])
   createdAt   DateTime @default(now())

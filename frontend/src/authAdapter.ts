@@ -1,7 +1,7 @@
 import { createAuthenticationAdapter } from '@rainbow-me/rainbowkit';
 import { createSiweMessage } from 'viem/siwe';
 
-const API_URL = 'http://localhost:3000';
+import { API_URL } from './api';
 
 export const authenticationAdapter = createAuthenticationAdapter({
     getNonce: async () => {
