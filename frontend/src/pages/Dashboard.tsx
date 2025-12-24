@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import EditorJS from '@editorjs/editorjs';
 // @ts-ignore
@@ -10,138 +9,217 @@ import List from '@editorjs/list';
 import ImageTool from '@editorjs/image';
 // @ts-ignore
 import Paragraph from '@editorjs/paragraph';
-
-const ADMINS = [
-    '0x242dfb7849544ee242b2265ca7e585bdec60456b',
-    '0xdbca8ab9eb325a8f550ffc6e45277081a6c7d681'
-];
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 export function Dashboard() {
+    const [view, setView] = useState<'list' | 'edit'>('list');
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [title, setTitle] = useState('');
+    const [status, setStatus] = useState('DRAFT');
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const editorRef = useRef<EditorJS | null>(null);
     const ejInstance = useRef<EditorJS | null>(null);
-    const navigate = useNavigate();
-    const { address, isConnected } = useAccount();
+    const queryClient = useQueryClient();
 
-    // BYPASS FRONTEND CHECK
-    // const isAdmin = isConnected && address && ADMINS.includes(address.toLowerCase());
-    const isAdmin = true;
+    const { data: articles, isLoading: articlesLoading } = useQuery({
+        queryKey: ['articles-admin'],
+        queryFn: async () => {
+            const res = await fetch('http://localhost:3000/articles', { credentials: 'include' });
+            if (!res.ok) return [];
+            return res.json();
+        }
+    });
+
+    const deleteMutation = useMutation({
+        mutationFn: async (id: string) => {
+            await fetch(`http://localhost:3000/articles/${id}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+        },
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['articles-admin'] })
+    });
 
     useEffect(() => {
-        // if (!isAdmin) return;
-        if (ejInstance.current) return;
-
-        const initEditor = () => {
-            const editor = new EditorJS({
-                holder: 'editorjs',
-                onReady: () => {
-                    ejInstance.current = editor;
-                },
-                autofocus: true,
-                data: {
-                    time: Date.now(),
-                    blocks: [
-                        { type: 'paragraph', data: { text: 'Start writing your story...' } }
-                    ]
-                },
-                tools: {
-                    header: Header,
-                    list: List,
-                    paragraph: {
-                        class: Paragraph,
-                        inlineToolbar: true,
+        if (view === 'edit' && !ejInstance.current) {
+            const initEditor = () => {
+                const editor = new EditorJS({
+                    holder: 'editorjs',
+                    onReady: () => {
+                        ejInstance.current = editor;
+                        if (editingId) {
+                            const article = articles?.find((a: any) => a.id === editingId);
+                            if (article && article.content) {
+                                try {
+                                    const parsed = JSON.parse(article.content);
+                                    if (parsed && parsed.blocks) {
+                                        editor.render(parsed);
+                                    } else {
+                                        // Fallback for string content
+                                        editor.render({
+                                            blocks: [{ type: 'paragraph', data: { text: article.content } }]
+                                        });
+                                    }
+                                } catch (e) {
+                                    console.error("Failed to render editor content", e);
+                                }
+                            }
+                        }
                     },
-                    image: {
-                        class: ImageTool,
-                        config: {
-                            endpoints: {
-                                byFile: 'http://localhost:3000/upload',
-                            },
-                            field: 'image'
+                    autofocus: true,
+                    tools: {
+                        header: Header,
+                        list: List,
+                        paragraph: { class: Paragraph, inlineToolbar: true },
+                        image: {
+                            class: ImageTool,
+                            config: {
+                                endpoints: { byFile: 'http://localhost:3000/upload' },
+                                field: 'image'
+                            }
                         }
                     }
-                }
-            });
-        };
-
-        initEditor();
-
+                });
+            };
+            initEditor();
+        }
         return () => {
             if (ejInstance.current) {
                 ejInstance.current.destroy();
                 ejInstance.current = null;
             }
         };
-    }, [isAdmin]);
+    }, [view, editingId, articles]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleEdit = (article: any) => {
+        setEditingId(article.id);
+        setTitle(article.title);
+        setStatus(article.status || 'DRAFT');
+        setView('edit');
+    };
+
+    const handleNew = () => {
+        setEditingId(null);
+        setTitle('');
+        setStatus('DRAFT');
+        setView('edit');
+    };
+
+    const handleSubmit = async () => {
         if (!title || !ejInstance.current) return;
         setIsSubmitting(true);
-
         try {
             const savedData = await ejInstance.current.save();
-            // Store stringified JSON
             const content = JSON.stringify(savedData);
+            const body = { title, content, status };
 
-            const res = await fetch('http://localhost:3000/articles', {
-                method: 'POST',
+            const url = editingId ? `http://localhost:3000/articles/${editingId}` : 'http://localhost:3000/articles';
+            const method = editingId ? 'PUT' : 'POST';
+
+            const res = await fetch(url, {
+                method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, content }),
+                body: JSON.stringify(body),
                 credentials: 'include'
             });
 
             if (res.ok) {
-                navigate('/');
-            } else {
-                alert('Failed to publish. Are you an admin?');
+                queryClient.invalidateQueries({ queryKey: ['articles-admin'] });
+                setView('list');
             }
         } catch (error) {
             console.error(error);
-            alert('Error creating article');
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    if (!isConnected) {
-        // return <div className="p-8 text-center text-gray-500">Connect wallet to verify access.</div>;
-    }
+    if (view === 'list') {
+        return (
+            <div className="max-w-6xl mx-auto p-8 bg-gray-50 min-h-screen">
+                <div className="flex justify-between items-center mb-10">
+                    <h1 className="text-3xl font-bold text-gray-800">Posts</h1>
+                    <button onClick={handleNew} className="bg-blue-600 text-white px-5 py-2 rounded shadow hover:bg-blue-700 font-medium">Add New</button>
+                </div>
 
-    if (!isAdmin) {
-        // return <div className="p-8 text-center text-red-500">Access Denied: You are not an admin.</div>;
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 font-bold">
+                            <tr>
+                                <th className="px-6 py-4 w-1/2">Title</th>
+                                <th className="px-6 py-4">Status</th>
+                                <th className="px-6 py-4">Author</th>
+                                <th className="px-6 py-4 text-right">Date</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {articles?.map((article: any) => (
+                                <tr key={article.id} className="hover:bg-gray-50 group transition-colors">
+                                    <td className="px-6 py-5">
+                                        <div className="font-semibold text-blue-600 hover:text-blue-800 cursor-pointer text-lg mb-1" onClick={() => handleEdit(article)}>{article.title}</div>
+                                        <div className="flex gap-3 text-xs opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <span className="text-blue-600 cursor-pointer hover:font-bold" onClick={() => handleEdit(article)}>Edit</span>
+                                            <span className="text-red-600 cursor-pointer hover:font-bold" onClick={() => { if (confirm('Delete?')) deleteMutation.mutate(article.id) }}>Trash</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-5"><span className={`px-2 py-1 rounded-md text-[10px] font-bold ${article.status === 'PUBLISHED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{article.status}</span></td>
+                                    <td className="px-6 py-5 text-gray-500 text-sm">{article.author?.address.slice(0, 8)}...</td>
+                                    <td className="px-6 py-5 text-right text-gray-400 text-xs">{new Date(article.publishedAt).toLocaleDateString()}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        );
     }
 
     return (
-        <div className="max-w-4xl mx-auto p-6 font-sans">
-            <h2 className="text-3xl font-bold font-serif mb-8 border-b pb-4">Create New Story</h2>
-            <form onSubmit={handleSubmit} className="space-y-6">
-                <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Headline</label>
-                    <input
-                        type="text"
-                        value={title}
-                        onChange={e => setTitle(e.target.value)}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black outline-none text-lg font-serif"
-                        placeholder="Article Headline"
-                        required
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">Content</label>
-                    <div className="min-h-[400px] border border-gray-300 rounded-lg p-4 bg-white" id="editorjs"></div>
-                </div>
-                <div className="flex justify-end pt-4">
-                    <button
-                        type="submit"
-                        disabled={isSubmitting}
-                        className="bg-black text-white px-8 py-3 rounded-full font-bold hover:bg-gray-800"
-                    >
-                        {isSubmitting ? 'Publishing...' : 'Publish Story'}
+        <div className="max-w-[1400px] mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-8 bg-gray-50 min-h-screen">
+            <div className="space-y-6">
+                <div className="flex items-center gap-4">
+                    <button onClick={() => setView('list')} className="text-gray-400 hover:text-gray-600">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                     </button>
+                    <h2 className="text-2xl font-bold text-gray-800">{editingId ? 'Edit Post' : 'Add New Post'}</h2>
                 </div>
-            </form>
+
+                <input
+                    type="text"
+                    value={title}
+                    onChange={e => setTitle(e.target.value)}
+                    className="w-full p-4 text-3xl font-serif border border-gray-300 rounded focus:border-blue-500 outline-none shadow-sm"
+                    placeholder="Enter title here"
+                />
+
+                <div className="bg-white border border-gray-300 rounded shadow-sm min-h-[600px] p-8">
+                    <div id="editorjs"></div>
+                </div>
+            </div>
+
+            <div className="space-y-6">
+                <div className="bg-white border border-gray-300 rounded shadow-sm">
+                    <div className="p-4 border-b border-gray-200 font-bold text-gray-700 bg-gray-50 rounded-t">Publish</div>
+                    <div className="p-4 space-y-4">
+                        <div className="flex items-center justify-between text-sm text-gray-600">
+                            <span>Status:</span>
+                            <select value={status} onChange={e => setStatus(e.target.value)} className="border-none bg-transparent font-bold text-blue-600 cursor-pointer outline-none">
+                                <option value="DRAFT">Draft</option>
+                                <option value="PUBLISHED">Published</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div className="p-4 bg-gray-50 border-t border-gray-200 rounded-b flex justify-between items-center">
+                        <button onClick={() => { if (confirm('Delete?')) { deleteMutation.mutate(editingId!); setView('list'); } }} className="text-red-600 text-xs hover:underline disabled:opacity-0" disabled={!editingId}>Move to Trash</button>
+                        <button
+                            onClick={handleSubmit}
+                            disabled={isSubmitting}
+                            className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700 shadow-sm disabled:opacity-50"
+                        >
+                            {isSubmitting ? 'Saving...' : (editingId ? 'Update' : 'Publish')}
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }

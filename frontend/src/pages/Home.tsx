@@ -76,7 +76,7 @@ export function Home() {
                                 <div className="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">
                                     <span>Crypto</span>
                                     <span className="text-gray-300">•</span>
-                                    <span>{new Date(article.createdAt).toLocaleDateString()}</span>
+                                    <span>{new Date(article.publishedAt).toLocaleDateString()}</span>
                                 </div>
                                 <Link to={`/`} className="block group-hover:text-blue-700 transition-colors">
                                     <h3 className="text-2xl font-bold font-serif leading-tight mb-3">{article.title}</h3>

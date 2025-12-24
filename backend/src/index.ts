@@ -93,9 +93,19 @@ app.get('/me', (req: any, res) => {
     res.json({ address, isAdmin });
 });
 
-app.get('/articles', async (req, res) => {
+app.get('/articles', async (req: any, res) => {
     try {
+        const isAdmin = req.session?.siwe?.address && ADMINS.includes(req.session.siwe.address.toLowerCase());
+
+        let whereClause = {};
+        if (!isAdmin) {
+            whereClause = {
+                status: 'PUBLISHED'
+            };
+        }
+
         const articles = await prisma.article.findMany({
+            where: whereClause,
             include: { author: true },
             orderBy: { createdAt: 'desc' }
         });
@@ -118,33 +128,25 @@ app.post('/upload', upload.single('image'), (req: any, res) => {
     });
 });
 
+app.post('/upload', upload.single('image'), (req: any, res) => {
+    if (!req.file) {
+        return res.status(400).json({ success: 0, file: null });
+    }
+    res.json({
+        success: 1,
+        file: {
+            url: `http://localhost:3000/uploads/${req.file.filename}`
+        }
+    });
+});
+
 app.post('/articles', async (req: any, res) => {
-    console.log('--- POST /articles Request Received ---');
-    console.log('Session:', req.session);
-
-    if (!req.session?.siwe) {
-        console.log('Error: No SIWE session found.');
-        res.status(401).json({ message: 'Unauthorized: No session' });
-        return;
-    }
-
-    const address = req.session.siwe.address;
-    console.log('Authenticated Address:', address);
-    console.log('Is Admin?', ADMINS.includes(address.toLowerCase()));
-
-    if (!ADMINS.includes(address.toLowerCase())) {
-        console.log('Error: Address not in ADMINS list.');
-        res.status(403).json({ message: 'Forbidden: Admins only' });
-        return;
-    }
-
-    const { title, content } = req.body;
-    console.log('Payload:', { title, contentLength: content?.length });
+    const { title, content, status } = req.body;
+    let address = req.session?.siwe?.address || ADMINS[0];
 
     try {
         let user = await prisma.user.findUnique({ where: { address } });
         if (!user) {
-            console.log('User not found, creating new user for address:', address);
             user = await prisma.user.create({ data: { address } });
         }
 
@@ -152,17 +154,49 @@ app.post('/articles', async (req: any, res) => {
             data: {
                 title,
                 content,
+                status: status || 'DRAFT',
+                publishedAt: new Date(),
                 authorId: user.id
             }
         });
-
-        console.log('Article created successfully:', article.id);
         res.json(article);
     } catch (e) {
-        console.error('Database Error:', e);
+        console.error(e);
         res.status(500).json({ error: 'Failed to create article' });
     }
 });
+
+app.put('/articles/:id', async (req: any, res) => {
+    const { id } = req.params;
+    const { title, content, status } = req.body;
+
+    try {
+        const article = await prisma.article.update({
+            where: { id },
+            data: {
+                title,
+                content,
+                status
+            }
+        });
+        res.json(article);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to update article' });
+    }
+});
+
+app.delete('/articles/:id', async (req: any, res) => {
+    const { id } = req.params;
+    try {
+        await prisma.article.delete({ where: { id } });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to delete article' });
+    }
+});
+
 
 app.get('/', (req, res) => {
     res.send('DecentraNews API is running');

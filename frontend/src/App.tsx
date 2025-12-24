@@ -14,7 +14,7 @@ function App() {
   const isAdmin = isConnected && address && ADMINS.includes(address.toLowerCase());
 
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <div className="min-h-screen bg-white flex flex-col font-sans text-gray-900">
         <header className="sticky top-0 z-50 w-full bg-white border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex justify-between items-center">
